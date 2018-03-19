@@ -4,16 +4,17 @@
 #include <unistd.h>
 
 extern "C" {
-#include "libavcodec/avcodec.h"
-#include "libavformat/avformat.h"
-#include "libswscale/swscale.h"
-#include "libavutil/imgutils.h"
-#include <android/native_window.h>
-#include <android/native_window_jni.h>
+#include <libavformat/avformat.h>
+#include <libavutil/imgutils.h>
+#include <libswscale/swscale.h>
+#include <libavcodec/jni.h>
 }
+
 #ifdef ANDROID
 
 #include <android/log.h>
+#include <android/native_window.h>
+#include <android/native_window_jni.h>
 
 #define LOGE(format, ...)  __android_log_print(ANDROID_LOG_ERROR, "(>_<)", format, ##__VA_ARGS__)
 #define LOGI(format, ...)  __android_log_print(ANDROID_LOG_INFO,  "(^_^)", format, ##__VA_ARGS__)
@@ -63,11 +64,35 @@ JNIEXPORT jint JNICALL Java_com_lake_ndktest_FFmpeg_play
     AVCodecParameters *pCodecPar = pFormatCtx->streams[videoStream]->codecpar;
     //查找解码器
     //获取一个合适的编码器pCodec find a decoder for the video stream
-    AVCodec *pCodec = avcodec_find_decoder(pCodecPar->codec_id);
-    if (pCodec == NULL) {
-        LOGE("Couldn't find Codec.\n");
-        return -1;
+    //AVCodec *pCodec = avcodec_find_decoder(pCodecPar->codec_id);
+    AVCodec *pCodec;
+    switch (pCodecPar->codec_id){
+        case AV_CODEC_ID_H264:
+            pCodec = avcodec_find_decoder_by_name("h264_mediacodec");//硬解码264
+            if (pCodec == NULL) {
+                LOGE("Couldn't find Codec.\n");
+                return -1;
+            }
+            break;
+        case AV_CODEC_ID_MPEG4:
+            pCodec = avcodec_find_decoder_by_name("mpeg4_mediacodec");//硬解码mpeg4
+            if (pCodec == NULL) {
+                LOGE("Couldn't find Codec.\n");
+                return -1;
+            }
+            break;
+        case AV_CODEC_ID_HEVC:
+            pCodec = avcodec_find_decoder_by_name("hevc_mediacodec");//硬解码265
+            if (pCodec == NULL) {
+                LOGE("Couldn't find Codec.\n");
+                return -1;
+            }
+            break;
+        default:
+            pCodec = avcodec_find_decoder(pCodecPar->codec_id);
+            break;
     }
+
     LOGI("获取解码器");
     //打开这个编码器，pCodecCtx表示编码器上下文，里面有流数据的信息
     // Get a pointer to the codec context for the video stream
@@ -88,9 +113,8 @@ JNIEXPORT jint JNICALL Java_com_lake_ndktest_FFmpeg_play
     int iSecond = iTotalSeconds % 60;//秒
     LOGI("持续时间：%02d:%02d:%02d\n", iHour, iMinute, iSecond);
 
-    LOGI("视频时长：%d微秒\n", pFormatCtx->streams[videoStream]->duration);
-    LOGI("持续时间：%d微秒\n", (int) pFormatCtx->duration);
-
+    LOGI("视频时长：%lld微秒\n", pFormatCtx->streams[videoStream]->duration);
+    LOGI("持续时间：%lld微秒\n", pFormatCtx->duration);
     LOGI("获取解码器SUCESS");
     if (avcodec_open2(pCodecCtx, pCodec, NULL) < 0) {
         LOGE("Could not open codec.");
@@ -187,6 +211,13 @@ JNIEXPORT jint JNICALL Java_com_lake_ndktest_FFmpeg_play
     // Close the video file
     avformat_close_input(&pFormatCtx);
     return 0;
+}
+
+jint JNI_OnLoad(JavaVM* vm, void* reserved)//这个类似android的生命周期，加载jni的时候会自己调用
+{
+    LOGI("ffmpeg JNI_OnLoad");
+    av_jni_set_java_vm(vm, reserved);
+    return JNI_VERSION_1_6;
 }
 
 

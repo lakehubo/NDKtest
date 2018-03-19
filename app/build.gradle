@@ -5,12 +5,17 @@ android {
     buildToolsVersion "26.0.0"
     defaultConfig {
         applicationId "com.lake.ndktest"
-        minSdkVersion 19
-        targetSdkVersion 19
+        minSdkVersion 23
+        targetSdkVersion 23
         versionCode 1
         versionName "1.0"
         ndk {
             abiFilter "armeabi"
+        }
+        externalNativeBuild {
+            cmake {
+                cppFlags "-std=c++11"
+            }
         }
         testInstrumentationRunner "android.support.test.runner.AndroidJUnitRunner"
 
@@ -20,12 +25,6 @@ android {
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
         }
-    }
-    sourceSets{
-        main{
-            jniLibs.srcDirs = ['libs']
-        }
-
     }
     externalNativeBuild {
         cmake {
