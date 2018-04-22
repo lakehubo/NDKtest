@@ -150,6 +150,9 @@ int HbFFmpeg::decodeVideo() {
             usleep(100000);
             continue;
         }
+        if(hbPlayStatus->seek){
+            continue;
+        }
         if (hbVideo->videoPacketQueue->getAvPacketSize() > 100) {
             usleep(20000);
             continue;
@@ -291,18 +294,20 @@ void HbFFmpeg::resume() {
 int HbFFmpeg::seek(int64_t sec) {
     hbPlayStatus->seek = true;
     pthread_mutex_lock(&seekMutex);
-    int64_t rel = ((int64_t) sec + 10) * AV_TIME_BASE;
+    int64_t rel = ((int64_t) sec) * AV_TIME_BASE;
     int ret = av_seek_frame(pFormatCtx, -1, rel, AVSEEK_FLAG_BACKWARD);
     if (hbVideo->videoPacketQueue != NULL) {
         hbVideo->videoPacketQueue->clearAvpacket();
         hbVideo->videoPacketQueue->clearAvFrame();
         hbVideo->now_videoTime = 0;
         hbVideo->videoClock = 0;
+        avcodec_flush_buffers(hbAudio->pAudioCodecCtx);
     }
     if (hbAudio->audioPacketQueue != NULL) {
         hbAudio->audioPacketQueue->clearAvpacket();
         hbAudio->now_audioTime = 0;
         hbAudio->audioClock = 0;
+        avcodec_flush_buffers(hbVideo->pVideoCodecCtx);//清掉解码器缓存，不然会花瓶
     }
     pthread_mutex_unlock(&seekMutex);
     hbPlayStatus->seek = false;

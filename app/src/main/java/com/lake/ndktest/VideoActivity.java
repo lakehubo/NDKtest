@@ -72,17 +72,18 @@ public class VideoActivity extends AppCompatActivity implements View.OnClickList
         seekProgress.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
             @Override
             public void onProgressChanged(SeekBar seekBar, int progress, boolean fromUser) {
-                //Log.e("lake", "onProgressChanged: " + progress);
                 mProgress = progress;
+                String t = resetTimeInt(mProgress / 3600) + ":" + resetTimeInt(mProgress % 3600 / 60) + ":" + resetTimeInt(mProgress % 60);
+                tvTime.setText(t);
             }
 
             @Override
             public void onStartTrackingTouch(SeekBar seekBar) {
-                //pause(true);
             }
 
             @Override
             public void onStopTrackingTouch(SeekBar seekBar) {
+                Log.e("lake", "onStopTrackingTouch:= "+mProgress);
                 seek(mProgress);
             }
         });
@@ -179,6 +180,7 @@ public class VideoActivity extends AppCompatActivity implements View.OnClickList
      * @param currt_secd
      */
     public void setProgressInfo(final int currt_secd) {
+        Log.e("lake", "setProgressInfo: ="+currt_secd);
         final String t = resetTimeInt(currt_secd / 3600) + ":" + resetTimeInt(currt_secd % 3600 / 60) + ":" + resetTimeInt(currt_secd % 60);
         runOnUiThread(new Runnable() {
             @Override
@@ -275,7 +277,7 @@ public class VideoActivity extends AppCompatActivity implements View.OnClickList
             case "chi":
                 return "(中文)";
             default:
-                return "(未知)";
+                return "";
         }
     }
 

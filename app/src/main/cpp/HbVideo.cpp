@@ -167,6 +167,7 @@ int HbVideo::drawVideoFrame() {
                                                 SWS_BICUBIC/*图像转换的一些算法*/, NULL, NULL, NULL);
     if (sws_ctx == NULL) {
         LOGE("Cannot initialize the conversion context!\n");
+        av_frame_free(&pFrameRGBA);
         return 0;
     }
 
@@ -197,7 +198,7 @@ int HbVideo::drawVideoFrame() {
             }
             delayTime = getDelayTime(diff);
             //LOGE("delayTime=%d", diff);
-            if (diff >= 0.8&&!hbPlayStatus->seek) {
+            if (diff >= 0.8) {
                 //LOGE("我在丢帧");
                 av_frame_free(&pFrame);
                 av_free(pFrame);

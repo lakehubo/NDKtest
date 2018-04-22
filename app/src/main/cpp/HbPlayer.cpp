@@ -54,7 +54,7 @@ extern "C"
 JNIEXPORT jint JNICALL
 Java_com_lake_ndktest_VideoActivity_seek(JNIEnv *env, jobject thiz, jint seekTime) {
     if(hbFFmpeg!=NULL){
-        hbFFmpeg->seek(seekTime);
+        hbFFmpeg->seek((int64_t)seekTime);
     }
     return 0;
 }
