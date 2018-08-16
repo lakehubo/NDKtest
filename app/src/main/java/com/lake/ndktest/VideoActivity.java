@@ -96,6 +96,7 @@ public class VideoActivity extends AppCompatActivity implements View.OnClickList
                     @Override
                     public void run() {
                         play(path, holder.getSurface());
+//                        playfilter(path, holder.getSurface());
                     }
                 }).start();
             }
@@ -156,6 +157,8 @@ public class VideoActivity extends AppCompatActivity implements View.OnClickList
     public native int stop();
 
     public native int switchAudioChannel(int i);
+
+    public native int playfilter(String inputurl, Object surface);
 
     @Override
     protected void onPause() {

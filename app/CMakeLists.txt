@@ -24,6 +24,7 @@ add_library(HbPlayer SHARED
                        ${CMAKE_SOURCE_DIR}/src/main/cpp/HbFFmpeg.cpp
                        ${CMAKE_SOURCE_DIR}/src/main/cpp/HbAudioChannel.cpp
                        ${CMAKE_SOURCE_DIR}/src/main/cpp/HbJavaCall.cpp
+                       ${CMAKE_SOURCE_DIR}/src/main/cpp/HbFilter.cpp
                        ${CMAKE_SOURCE_DIR}/src/main/cpp/HbPlayStatus.cpp)
 #C 日志 ndk官方库
 find_library(log-lib log)

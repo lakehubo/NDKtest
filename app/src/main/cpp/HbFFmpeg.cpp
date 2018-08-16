@@ -315,9 +315,7 @@ int HbFFmpeg::seek(int64_t sec) {
 }
 
 int HbFFmpeg::switchAudioChannel(int64_t channel) {
-    //LOGE("CHANNEL==%d",channel);
     for (int i = 0; i < audiochannels.size(); i++) {
-        //LOGE("audiochannels.size()=%d",audiochannels.size());
         if (audiochannels.at(i)->channel == channel) {
             if (hbAudio != NULL) {
                 hbAudio->hbAudioChannel = (HbAudioChannel *) audiochannels.at(i);
@@ -326,5 +324,4 @@ int HbFFmpeg::switchAudioChannel(int64_t channel) {
         }
     }
     return 0;
-
 }

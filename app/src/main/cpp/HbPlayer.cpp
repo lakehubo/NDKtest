@@ -38,6 +38,7 @@ JNIEXPORT jint JNICALL Java_com_lake_ndktest_VideoActivity_play
         hbJavaCall = new HbJavaCall(curVm, env, &obj);
     }
     file_name = env->GetStringUTFChars(input_jstr, NULL);
+    //file_name = "http://audio.live.cntv.dnion.com/cache/219_/seg0/index.m3u8";
     LOGI("file_name:%s\n", file_name);
     hbFFmpeg = new HbFFmpeg(hbJavaCall,file_name);
     // 获取native window
