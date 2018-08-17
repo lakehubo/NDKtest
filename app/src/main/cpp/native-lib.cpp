@@ -31,15 +31,23 @@ JNIEXPORT jint JNICALL Java_com_lake_ndktest_FFmpeg_play
     const char *file_name = env->GetStringUTFChars(input_jstr, NULL);
     LOGI("file_name:%s\n", file_name);
     av_register_all();
+    avformat_network_init();
+
+    AVDictionary *option = NULL;
+    av_dict_set(&option, "rtsp_transport", "tcp", 0);
 
     AVFormatContext *pFormatCtx = avformat_alloc_context();
 
-    // Open video file
-    if (avformat_open_input(&pFormatCtx, file_name, NULL, NULL) != 0) {
 
-        LOGE("Couldn't open file:%s\n", file_name);
-        return -1; // Couldn't open file
+    // Open RTSP
+    const char *rtspUrl= env->GetStringUTFChars(input_jstr, JNI_FALSE);
+    if (int err = avformat_open_input(&pFormatCtx, rtspUrl, NULL, &option) != 0) {
+        LOGE("Cannot open input %s, error code: %d", rtspUrl, err);
+        return JNI_ERR;
     }
+    env->ReleaseStringUTFChars(input_jstr, rtspUrl);
+
+    av_dict_free(&option);
 
     // Retrieve stream information
     if (avformat_find_stream_info(pFormatCtx, NULL) < 0) {
@@ -93,7 +101,7 @@ JNIEXPORT jint JNICALL Java_com_lake_ndktest_FFmpeg_play
             break;
     }
 
-    LOGI("获取解码器");
+    LOGI("获取解码器 %d.", pCodecPar->codec_id);
     //打开这个编码器，pCodecCtx表示编码器上下文，里面有流数据的信息
     // Get a pointer to the codec context for the video stream
     AVCodecContext *pCodecCtx = avcodec_alloc_context3(pCodec);
@@ -169,7 +177,7 @@ JNIEXPORT jint JNICALL Java_com_lake_ndktest_FFmpeg_play
         if (packet.stream_index == videoStream) {
             //该楨位置
             float timestamp = packet.pts * av_q2d(pFormatCtx->streams[videoStream]->time_base);
-            LOGI("timestamp=%f", timestamp);
+            //LOGI("timestamp=%f", timestamp);
             // 解码
             ret = avcodec_send_packet(pCodecCtx, &packet);
             if (ret < 0) {

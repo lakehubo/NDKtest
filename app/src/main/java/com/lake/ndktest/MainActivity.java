@@ -17,6 +17,10 @@ public class MainActivity extends AppCompatActivity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
+
+        //Set sdcard permission
+        PermissionUtils.verifyStoragePermissions(this);
+
         Button startButton = (Button) this.findViewById(R.id.button_start);
         urlEdittext_input= (EditText) this.findViewById(R.id.input_url);
         surfaceView = (SurfaceView)findViewById(R.id.surfaceView);
@@ -25,7 +29,8 @@ public class MainActivity extends AppCompatActivity {
             public void onClick(View arg0){
                 String folderurl= Environment.getExternalStorageDirectory().getPath();
                 String urltext_input=urlEdittext_input.getText().toString();
-                final String inputurl=folderurl+"/MyLocalPlayer/"+urltext_input;
+                    //final String inputurl=folderurl+"/"+urltext_input;
+                    final String inputurl = urlEdittext_input.getText().toString();
                 new Thread(new Runnable() {
                     @Override
                     public void run() {

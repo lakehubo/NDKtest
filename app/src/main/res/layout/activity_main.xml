@@ -6,7 +6,7 @@
     android:orientation="vertical"
     tools:context="com.lake.ndktest.MainActivity">
     <EditText
-        android:text="渡.mp4"
+        android:text="rtsp://192.168.0.20:554"
         android:hint="inputBitstream"
         android:id="@+id/input_url"
         android:layout_width="match_parent"
