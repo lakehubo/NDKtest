@@ -8,6 +8,8 @@ extern "C" {
 #include <libavutil/imgutils.h>
 #include <libswscale/swscale.h>
 #include <libavcodec/jni.h>
+#include <stdio.h>
+#include <time.h>
 
 
 #ifdef ANDROID
@@ -62,7 +64,7 @@ JNIEXPORT jint JNICALL Java_com_lake_ndktest_FFmpeg_play
 
     AVDictionary *option = NULL;
     av_dict_set(&option, "buffer_size", "1024000", 0);
-    av_dict_set(&option, "max_delay", "500000", 0);
+    av_dict_set(&option, "max_delay", "300000", 0);
     av_dict_set(&option, "stimeout", "20000000", 0);  //设置超时断开连接时间
     av_dict_set(&option, "rtsp_transport", "tcp", 0);
 
@@ -79,11 +81,21 @@ JNIEXPORT jint JNICALL Java_com_lake_ndktest_FFmpeg_play
 
     av_dict_free(&option);
 
+    clock_t start, stop;
+    double duration;
+
+    start = clock();
     // Retrieve stream information
     if (avformat_find_stream_info(pFormatCtx, NULL) < 0) {
         LOGE("Couldn't find stream information.");
         return -1;
     }
+
+    stop = clock();
+    duration = ((double)(stop - start))/CLOCKS_PER_SEC;
+
+    LOGI(" +++++ avformat_find_stream_info function runtime is : %lf s. +++++ \n", duration);
+
     // Find the first video stream
     //找到第一个视频流，因为里面的流还有可能是音频流或者其他的，我们摄像头只关心视频流
     int videoStream = -1, i;
