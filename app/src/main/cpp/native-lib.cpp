@@ -8,7 +8,7 @@ extern "C" {
 #include <libavutil/imgutils.h>
 #include <libswscale/swscale.h>
 #include <libavcodec/jni.h>
-}
+
 
 #ifdef ANDROID
 
@@ -23,17 +23,47 @@ extern "C" {
 #define LOGI(format, ...)  printf("(^_^) " format "\n", ##__VA_ARGS__)
 #endif
 
-extern "C"
+//Output FFmpeg's av_log()
+void custom_log(void *ptr, int level, const char* fmt, va_list vl){
+#if 0
+    FILE *fp=fopen("/storage/emulated/0/av_log.txt","a+");
+    if(fp){
+        vfprintf(fp,fmt,vl);
+        fflush(fp);
+        fclose(fp);
+    }
+#endif
+    switch(level) {
+        case AV_LOG_DEBUG:
+            __android_log_print(ANDROID_LOG_DEBUG, "(>_<)", fmt, vl);
+            break;
+        case AV_LOG_VERBOSE:
+            __android_log_print(ANDROID_LOG_VERBOSE, "(>_<)", fmt, vl);
+            break;
+        case AV_LOG_INFO:
+            __android_log_print(ANDROID_LOG_INFO, "(>_<)", fmt, vl);
+            break;
+        case AV_LOG_ERROR:
+            __android_log_print(ANDROID_LOG_ERROR, "(>_<)", fmt, vl);
+            break;
+    }
+}
+
+
 JNIEXPORT jint JNICALL Java_com_lake_ndktest_FFmpeg_play
         (JNIEnv *env, jobject obj, jstring input_jstr, jobject surface) {
     LOGI("play");
-    // sd卡中的视频文件地址,可自行修改或者通过jni传入
-    const char *file_name = env->GetStringUTFChars(input_jstr, NULL);
-    LOGI("file_name:%s\n", file_name);
+
+    //FFmpeg av_log() callback
+    av_log_set_callback(custom_log);
+
     av_register_all();
     avformat_network_init();
 
     AVDictionary *option = NULL;
+    av_dict_set(&option, "buffer_size", "1024000", 0);
+    av_dict_set(&option, "max_delay", "500000", 0);
+    av_dict_set(&option, "stimeout", "20000000", 0);  //设置超时断开连接时间
     av_dict_set(&option, "rtsp_transport", "tcp", 0);
 
     AVFormatContext *pFormatCtx = avformat_alloc_context();
@@ -219,6 +249,7 @@ JNIEXPORT jint JNICALL Java_com_lake_ndktest_FFmpeg_play
     // Close the video file
     avformat_close_input(&pFormatCtx);
     return 0;
+}
 }
 
 jint JNI_OnLoad(JavaVM* vm, void* reserved)//这个类似android的生命周期，加载jni的时候会自己调用
