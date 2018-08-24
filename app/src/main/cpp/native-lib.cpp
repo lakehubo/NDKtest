@@ -61,6 +61,9 @@ AVFilterGraph *filter_graph;
 static int videoStream1 = -1;
 static int videoStream2 = -1;
 
+int videoWidth;
+int videoHeight;
+
 
 
 
@@ -187,6 +190,100 @@ static int init_filters(const char *filter_descr)
     avfilter_inout_free(&inputs);
     avfilter_inout_free(outputs);
     av_free(outputs);
+
+    return ret;
+}
+
+
+int display_frame(AVFormatContext *pFormatCtx, AVCodecContext *pCodecCtx, int video_index,
+                  AVFilterContext *buffersrc_ctx, AVFilterContext *buffersink_ctx,
+                  ANativeWindow *nativeWindow, ANativeWindow_Buffer windowBuffer, struct SwsContext *sws_ctx,
+                  AVFrame *pFrameRGBA)
+{
+    int ret = 0;
+    AVPacket packet;
+    AVFrame *pFrame = av_frame_alloc();
+    AVFrame *filt_frame = av_frame_alloc();
+    LOGI("++++++++ in display_frame function.  * 1 * \n");
+
+    while (av_read_frame(pFormatCtx, &packet) >= 0) {
+        // Is this a packet from the video stream?
+        if ((packet.stream_index == video_index)) {
+
+            // 解码
+            ret = avcodec_send_packet(pCodecCtx, &packet);
+            if (ret < 0) {
+                LOGE("Error to send packet.\n");
+                break;
+            }
+            LOGI("++++++++ in display_frame function.  * 2 * \n");
+
+            while (avcodec_receive_frame(pCodecCtx, pFrame) == 0) {//绘图
+
+#ifdef USE_FILTER
+                /* Push the decoded frame into the filtergraph. */
+                if(av_buffersrc_add_frame_flags(buffersrc_ctx, pFrame, AV_BUFFERSRC_FLAG_KEEP_REF) < 0){
+                    LOGE("Error while feeding the filtergraph. \n");
+                    break;
+                }
+                LOGI("++++++++ in display_frame function.  * 3 * \n");
+
+                /* Pull filtered frame from the filtergraph */
+                while (1){
+                    ret = av_buffersink_get_frame(buffersink_ctx, filt_frame);
+                    if(ret == AVERROR(EAGAIN) || ret == AVERROR_EOF)
+                        break;
+                    if(ret < 0)
+                        goto end;
+#endif
+                    // lock native window buffer
+                    ANativeWindow_lock(nativeWindow, &windowBuffer, 0);
+
+
+#ifdef USE_FILTER
+                    // 格式转换
+                    sws_scale(sws_ctx, (uint8_t const *const *) filt_frame->data,
+                              filt_frame->linesize, 0, pCodecCtx1->height,
+                              pFrameRGBA->data, pFrameRGBA->linesize);
+#endif
+
+
+                    /*********************************************************************/
+                    /************* If test RTSP or LOCAL_FILE, need to change here. ******/
+                    /************* Change filt_frame to pFrame. **************************/
+                    /*********************************************************************/
+#if 0
+                    // 格式转换
+                    sws_scale(sws_ctx, (uint8_t const *const *) pFrame->data,
+                              pFrame->linesize, 0, pCodecCtx->height,
+                              pFrameRGBA->data, pFrameRGBA->linesize);
+#endif
+
+
+                    // 获取stride
+                    uint8_t *dst = (uint8_t *) windowBuffer.bits;
+                    int dstStride = windowBuffer.stride * 4;
+                    uint8_t *src = pFrameRGBA->data[0];
+                    int srcStride = pFrameRGBA->linesize[0];
+
+                    // 由于window的stride和帧的stride不同,因此需要逐行复制
+                    int h;
+                    for (h = 0; h < videoHeight; h++) {
+                        memcpy(dst + h * dstStride, src + h * srcStride, srcStride);
+                    }
+                    LOGI("++++++++ in display_frame function.  * 4 * \n");
+                    ANativeWindow_unlockAndPost(nativeWindow);
+#ifdef USE_FILTER
+                    av_frame_unref(filt_frame);
+                }
+#endif
+            }
+        }
+        av_packet_unref(&packet);
+    }
+
+end:
+    av_free(pFrame);
 
     return ret;
 }
@@ -418,8 +515,8 @@ JNIEXPORT jint JNICALL Java_com_lake_ndktest_FFmpeg_play
     ANativeWindow *nativeWindow = ANativeWindow_fromSurface(env, surface);
     LOGI("获取视频宽高");
     // 获取视频宽高
-    int videoWidth = pCodecCtx1->width;
-    int videoHeight = pCodecCtx1->height;
+    videoWidth = pCodecCtx1->width;
+    videoHeight = pCodecCtx1->height;
     LOGI("设置native window的buffer大小,可自动拉伸");
     // 设置native window的buffer大小,可自动拉伸
     ANativeWindow_setBuffersGeometry(nativeWindow, videoWidth, videoHeight,
@@ -472,92 +569,13 @@ JNIEXPORT jint JNICALL Java_com_lake_ndktest_FFmpeg_play
 
 
     /**************************** Below is Display **********************************/
+    display_frame(pFormatCtx2, pCodecCtx2, videoStream2, buffersrc_ctx2, buffersink_ctx,
+                  nativeWindow, windowBuffer, sws_ctx, pFrameRGBA);
 
-    AVPacket packet1;
-    AVPacket packet2;
-    while ((av_read_frame(pFormatCtx1, &packet1) >= 0) && (av_read_frame(pFormatCtx2, &packet2) >= 0)) {
-        // Is this a packet from the video stream?
-        if ((packet1.stream_index == videoStream1) && (packet2.stream_index == videoStream2)) {
-            //该楨位置
-            //float timestamp = packet.pts * av_q2d(pFormatCtx->streams[videoStream]->time_base);
-            //LOGI("timestamp=%f", timestamp);
-            // 解码
-            ret = avcodec_send_packet(pCodecCtx1, &packet1);
-            if (ret < 0) {
-                LOGE("Error to send packet1.\n");
-                break;
-            }
-            ret = avcodec_send_packet(pCodecCtx2, &packet2);
-            if (ret < 0) {
-                LOGE("Error to send packet2.\n");
-                break;
-            }
-            while ((avcodec_receive_frame(pCodecCtx1, pFrame1) == 0) && (avcodec_receive_frame(pCodecCtx2, pFrame2) == 0)) {//绘图
-
-#ifdef USE_FILTER
-                /* Push the decoded frame into the filtergraph. */
-                if(av_buffersrc_add_frame_flags(buffersrc_ctx1, pFrame1, AV_BUFFERSRC_FLAG_KEEP_REF) < 0){
-                    LOGE("Error while feeding the filtergraph. \n");
-                    break;
-                }
-                if(av_buffersrc_add_frame_flags(buffersrc_ctx2, pFrame2, AV_BUFFERSRC_FLAG_KEEP_REF) < 0){
-                    LOGE("Error while feeding the filtergraph. \n");
-                    break;
-                }
-
-                /* Pull filtered frame from the filtergraph */
-                while (1){
-                    ret = av_buffersink_get_frame(buffersink_ctx, filt_frame);
-                    if(ret == AVERROR(EAGAIN) || ret == AVERROR_EOF)
-                        break;
-                    if(ret < 0)
-                        goto end;
-#endif
-                    // lock native window buffer
-                    ANativeWindow_lock(nativeWindow, &windowBuffer, 0);
+    display_frame(pFormatCtx1, pCodecCtx1, videoStream1, buffersrc_ctx1, buffersink_ctx,
+            nativeWindow, windowBuffer, sws_ctx, pFrameRGBA);
 
 
-#ifdef USE_FILTER
-                    // 格式转换
-                    sws_scale(sws_ctx, (uint8_t const *const *) filt_frame->data,
-                              filt_frame->linesize, 0, pCodecCtx1->height,
-                              pFrameRGBA->data, pFrameRGBA->linesize);
-#endif
-
-
-                /*********************************************************************/
-                /************* If test RTSP or LOCAL_FILE, need to change here. ******/
-                /************* Change filt_frame to pFrame. **************************/
-                /*********************************************************************/
-#if 0
-                // 格式转换
-                    sws_scale(sws_ctx, (uint8_t const *const *) pFrame->data,
-                              pFrame->linesize, 0, pCodecCtx->height,
-                              pFrameRGBA->data, pFrameRGBA->linesize);
-#endif
-
-
-                    // 获取stride
-                    uint8_t *dst = (uint8_t *) windowBuffer.bits;
-                    int dstStride = windowBuffer.stride * 4;
-                    uint8_t *src = pFrameRGBA->data[0];
-                    int srcStride = pFrameRGBA->linesize[0];
-
-                    // 由于window的stride和帧的stride不同,因此需要逐行复制
-                    int h;
-                    for (h = 0; h < videoHeight; h++) {
-                        memcpy(dst + h * dstStride, src + h * srcStride, srcStride);
-                    }
-                    ANativeWindow_unlockAndPost(nativeWindow);
-#ifdef USE_FILTER
-                    av_frame_unref(filt_frame);
-                }
-#endif
-            }
-        }
-        av_packet_unref(&packet1);
-        av_packet_unref(&packet2);
-    }
     LOGE("播放完成");
 
 
@@ -568,10 +586,6 @@ end:
 
     av_free(buffer);
     av_free(pFrameRGBA);
-
-    // Free the YUV frame
-    av_free(pFrame1);
-    av_free(pFrame2);
 
     // Close the codecs
     avcodec_free_context(&pCodecCtx1);
