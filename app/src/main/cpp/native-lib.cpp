@@ -39,13 +39,13 @@ extern "C" {
 
 
 const char *filter_descr = "scale=78:24,transpose=cclock";
-const char *filter_descr_null="null";
-const char *filter_mirror = "crop=iw/2:ih:0:0,split[left][tmp];[tmp]hflip[right];[left]pad=iw*2[a];[a][right]overlay=w";
-const char *filter_watermark = "movie=test.jpg[wm];[in][wm]overlay=5:5[out]";
-const char *filter_negate = "negate[out]";
-const char *filter_edge = "edgedetect[out]";
-const char *filter_split4 = "scale=iw/2:ih/2[in_tmp];[in_tmp]split=4[in_1][in_2][in_3][in_4];[in_1]pad=iw*2:ih*2[a];[a][in_2]overlay=w[b];[b][in_3]overlay=0:h[d];[d][in_4]overlay=w:h[out]";
-const char *filter_vintage = "curves=vintage";
+const char *filter_descr_null="null"; //将输入视频原样输出
+const char *filter_mirror = "crop=iw/2:ih:0:0,split[left][tmp];[tmp]hflip[right];[left]pad=iw*2[a];[a][right]overlay=w"; //镜像输出
+const char *filter_watermark = "movie=hebe.jpg[wm];[in][wm]overlay=5:5[out]"; //将一个图片作为水印添加到左上角(5,5)的位置，目前这个不能使用，不知道jpg的图片应该放在哪个文件夹下面。
+const char *filter_negate = "negate[out]"; //反相输出
+const char *filter_edge = "edgedetect[out]"; //边缘检测
+const char *filter_split4 = "scale=iw/2:ih/2[in_tmp];[in_tmp]split=4[in_1][in_2][in_3][in_4];[in_1]pad=iw*2:ih*2[a];[a][in_2]overlay=w[b];[b][in_3]overlay=0:h[d];[d][in_4]overlay=w:h[out]"; //将一路视频分成4路显示，2*2
+const char *filter_vintage = "curves=vintage"; //这个不能使用，会引起crash。
 
 
 AVFormatContext *pFormatCtx;
@@ -344,7 +344,7 @@ JNIEXPORT jint JNICALL Java_com_lake_ndktest_FFmpeg_play
     int ret;
 
 #ifdef USE_FILTER
-    ret = init_filters(filter_mirror);
+    ret = init_filters(filter_split4);
     if(ret < 0){
         goto end;
     }
@@ -392,8 +392,10 @@ JNIEXPORT jint JNICALL Java_com_lake_ndktest_FFmpeg_play
 #endif
 
 
-
-                /************* If test RTSP, also need to change here. *****************/
+                /*********************************************************************/
+                /************* If test RTSP or LOCAL_FILE, need to change here. ******/
+                /************* Change filt_frame to pFrame. **************************/
+                /*********************************************************************/
 #if 0
                 // 格式转换
                     sws_scale(sws_ctx, (uint8_t const *const *) pFrame->data,
