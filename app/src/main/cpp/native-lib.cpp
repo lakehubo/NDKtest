@@ -46,7 +46,7 @@ const char *filter_negate = "negate[out]"; //反相输出
 const char *filter_edge = "edgedetect[out]"; //边缘检测
 const char *filter_split4 = "scale=iw/2:ih/2[in_tmp];[in_tmp]split=4[in_1][in_2][in_3][in_4];[in_1]pad=iw*2:ih*2[a];[a][in_2]overlay=w[b];[b][in_3]overlay=0:h[d];[d][in_4]overlay=w:h[out]"; //将一路视频分成4路显示，2*2
 const char *filter_vintage = "curves=vintage"; //这个不能使用，会引起crash。
-const char *filter_mix_2 = "[in_1]scale=iw/2:ih/2[a];[a][in_2]overlay=w/2[out]";
+const char *filter_mix_2 = "color=c=black@1:s=1920x1080[x0];[in_1]scale=iw/2:ih/2[a];[x0][a]overlay=0:0[x1];[in_2]scale=iw/2:ih/2[b];[x1][b]overlay=w[x2];[x2]null[out]";
 
 
 AVFormatContext *pFormatCtx1;
@@ -231,12 +231,12 @@ JNIEXPORT jint JNICALL Java_com_lake_ndktest_FFmpeg_play
 #ifdef TEST_LOCAL_FILE
     const char *fileUrl = env->GetStringUTFChars(input_jstr, JNI_FALSE);
     if (int err = avformat_open_input(&pFormatCtx1, "/storage/emulated/0/test1.mp4", NULL, NULL) != 0) {
-        LOGE("Cannot open input %s, error code: %d", "/storage/emulated/0/test.mp4", err);
+        LOGE("Cannot open input %s, error code: %d", "/storage/emulated/0/test1.mp4", err);
         return JNI_ERR;
     }
 
     if (int err = avformat_open_input(&pFormatCtx2, "/storage/emulated/0/test2.mp4", NULL, NULL) != 0) {
-        LOGE("Cannot open input %s, error code: %d", "/storage/emulated/0/test.mp4", err);
+        LOGE("Cannot open input %s, error code: %d", "/storage/emulated/0/test2.mp4", err);
         return JNI_ERR;
     }
 
@@ -484,10 +484,12 @@ JNIEXPORT jint JNICALL Java_com_lake_ndktest_FFmpeg_play
             // 解码
             ret = avcodec_send_packet(pCodecCtx1, &packet1);
             if (ret < 0) {
+                LOGE("Error to send packet1.\n");
                 break;
             }
             ret = avcodec_send_packet(pCodecCtx2, &packet2);
             if (ret < 0) {
+                LOGE("Error to send packet2.\n");
                 break;
             }
             while ((avcodec_receive_frame(pCodecCtx1, pFrame1) == 0) && (avcodec_receive_frame(pCodecCtx2, pFrame2) == 0)) {//绘图
