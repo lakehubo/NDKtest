@@ -46,15 +46,20 @@ const char *filter_negate = "negate[out]"; //反相输出
 const char *filter_edge = "edgedetect[out]"; //边缘检测
 const char *filter_split4 = "scale=iw/2:ih/2[in_tmp];[in_tmp]split=4[in_1][in_2][in_3][in_4];[in_1]pad=iw*2:ih*2[a];[a][in_2]overlay=w[b];[b][in_3]overlay=0:h[d];[d][in_4]overlay=w:h[out]"; //将一路视频分成4路显示，2*2
 const char *filter_vintage = "curves=vintage"; //这个不能使用，会引起crash。
+const char *filter_mix_2 = "[in_1]scale=iw/2:ih/2[a];[a][in_2]overlay=w/2[out]";
 
 
-AVFormatContext *pFormatCtx;
-AVCodecContext *pCodecCtx;
+AVFormatContext *pFormatCtx1;
+AVFormatContext *pFormatCtx2;
+AVCodecContext *pCodecCtx1;
+AVCodecContext *pCodecCtx2;
 
-AVFilterContext *buffersrc_ctx;
+AVFilterContext *buffersrc_ctx1;
+AVFilterContext *buffersrc_ctx2;
 AVFilterContext *buffersink_ctx;
 AVFilterGraph *filter_graph;
-static int videoStream = -1;
+static int videoStream1 = -1;
+static int videoStream2 = -1;
 
 
 
@@ -89,16 +94,21 @@ void custom_log(void *ptr, int level, const char* fmt, va_list vl){
 static int init_filters(const char *filter_descr)
 {
     int ret = 0;
-    char args[512];
+    char args1[512];
+    char args2[512]; //好像args这个参数可以共用，暂时先分开使用。
     char err_buf[128];
 
     LOGI("++++++++ in init_filters function. \n");
 
-    AVFilter *buffersrc = avfilter_get_by_name("buffer");
-    AVFilter *buffersink = avfilter_get_by_name("buffersink");
+    AVFilter *buffersrc1 = avfilter_get_by_name("buffer"); //if stream is audio, the name will be "abuffer"
+    AVFilter *buffersrc2 = avfilter_get_by_name("buffer"); //if stream is audio, the name will be "abuffer"
+    AVFilter *buffersink = avfilter_get_by_name("buffersink"); //if stream is audio, the name will be "abuffersink"
     AVFilterInOut *inputs = avfilter_inout_alloc();
-    AVFilterInOut *outputs = avfilter_inout_alloc();
-    AVRational time_base = pFormatCtx->streams[videoStream]->time_base;
+    AVFilterInOut **outputs = (AVFilterInOut **)av_malloc(2*sizeof(AVFilterInOut*)); //如果增加多路信号的话，需要修改这里，默认是2路信号
+    outputs[0] = avfilter_inout_alloc();
+    outputs[1] = avfilter_inout_alloc();
+    AVRational time_base1 = pFormatCtx1->streams[videoStream1]->time_base;
+    AVRational time_base2 = pFormatCtx2->streams[videoStream2]->time_base;
 
     filter_graph = avfilter_graph_alloc();
     if(!inputs || !outputs || !filter_graph){
@@ -107,22 +117,37 @@ static int init_filters(const char *filter_descr)
     }
     LOGI("++++++++ in init_filters function.  - 1 - \n");
     /* buffer video source: the decoded frames from the decoder will be inserted here. */
-    LOGI("video_size=%dx%d:pix_fmt=%d:time_base=%d/%d:pixel_aspect=%d/%d",
-         pCodecCtx->width, pCodecCtx->height, pCodecCtx->pix_fmt,
-         time_base.num, time_base.den,
-         pCodecCtx->sample_aspect_ratio.num, pCodecCtx->sample_aspect_ratio.den);
+    LOGI("Stream1 video_size=%dx%d:pix_fmt=%d:time_base=%d/%d:pixel_aspect=%d/%d",
+         pCodecCtx1->width, pCodecCtx1->height, pCodecCtx1->pix_fmt,
+         time_base1.num, time_base1.den,
+         pCodecCtx1->sample_aspect_ratio.num, pCodecCtx1->sample_aspect_ratio.den);
+    LOGI("Stream2 video_size=%dx%d:pix_fmt=%d:time_base=%d/%d:pixel_aspect=%d/%d",
+         pCodecCtx2->width, pCodecCtx2->height, pCodecCtx2->pix_fmt,
+         time_base2.num, time_base2.den,
+         pCodecCtx2->sample_aspect_ratio.num, pCodecCtx2->sample_aspect_ratio.den);
 
-    snprintf(args, sizeof(args),
+    snprintf(args1, sizeof(args1),
              "video_size=%dx%d:pix_fmt=%d:time_base=%d/%d:pixel_aspect=%d/%d",
-             pCodecCtx->width, pCodecCtx->height, pCodecCtx->pix_fmt,
-             time_base.num, time_base.den,
-             pCodecCtx->sample_aspect_ratio.num, pCodecCtx->sample_aspect_ratio.den);
+             pCodecCtx1->width, pCodecCtx1->height, pCodecCtx1->pix_fmt,
+             time_base1.num, time_base1.den,
+             pCodecCtx1->sample_aspect_ratio.num, pCodecCtx1->sample_aspect_ratio.den);
+    snprintf(args2, sizeof(args2),
+             "video_size=%dx%d:pix_fmt=%d:time_base=%d/%d:pixel_aspect=%d/%d",
+             pCodecCtx2->width, pCodecCtx2->height, pCodecCtx2->pix_fmt,
+             time_base2.num, time_base2.den,
+             pCodecCtx2->sample_aspect_ratio.num, pCodecCtx2->sample_aspect_ratio.den);
     LOGI("++++++++ in init_filters function.  - 2 - \n");
 
-    ret = avfilter_graph_create_filter(&buffersrc_ctx, buffersrc, "in", args, NULL, filter_graph);
+    ret = avfilter_graph_create_filter(&buffersrc_ctx1, buffersrc1, "in_1", args1, NULL, filter_graph);
     if(ret < 0){
         av_strerror(ret, err_buf, 1024);
-        LOGE("Couldn't create buffer source, error code: %d (%s). \n", ret, err_buf);
+        LOGE("Couldn't create buffer source 1, error code: %d (%s). \n", ret, err_buf);
+        goto end;
+    }
+    ret = avfilter_graph_create_filter(&buffersrc_ctx2, buffersrc2, "in_2", args2, NULL, filter_graph);
+    if(ret < 0){
+        av_strerror(ret, err_buf, 1024);
+        LOGE("Couldn't create buffer source 2, error code: %d (%s). \n", ret, err_buf);
         goto end;
     }
     LOGI("++++++++ in init_filters function.  - 3 - \n");
@@ -136,10 +161,15 @@ static int init_filters(const char *filter_descr)
     LOGI("++++++++ in init_filters function.  - 4 - \n");
     /*  Quite not understand........ */
     /* Endpoints for the filter graph. */
-    outputs->name = av_strdup("in");
-    outputs->filter_ctx = buffersrc_ctx;
-    outputs->pad_idx = 0;
-    outputs->next = NULL;
+    outputs[0]->name = av_strdup("in_1");
+    outputs[0]->filter_ctx = buffersrc_ctx1;
+    outputs[0]->pad_idx = 0;
+    outputs[0]->next = outputs[1];
+
+    outputs[1]->name = av_strdup("in_2");
+    outputs[1]->filter_ctx = buffersrc_ctx2;
+    outputs[1]->pad_idx = 0;
+    outputs[1]->next = NULL;
 
     inputs->name = av_strdup("out");
     inputs->filter_ctx = buffersink_ctx;
@@ -147,7 +177,7 @@ static int init_filters(const char *filter_descr)
     inputs->next = NULL;
     LOGI("++++++++ in init_filters function.  - 5 - \n");
 
-    if((ret = avfilter_graph_parse_ptr(filter_graph, filter_descr, &inputs, &outputs, NULL)) < 0)
+    if((ret = avfilter_graph_parse_ptr(filter_graph, filter_descr, &inputs, outputs, NULL)) < 0)
         goto end;
     if((ret = avfilter_graph_config(filter_graph, NULL)) < 0)
         goto end;
@@ -155,7 +185,8 @@ static int init_filters(const char *filter_descr)
 
     end:
     avfilter_inout_free(&inputs);
-    avfilter_inout_free(&outputs);
+    avfilter_inout_free(outputs);
+    av_free(outputs);
 
     return ret;
 }
@@ -171,6 +202,8 @@ JNIEXPORT jint JNICALL Java_com_lake_ndktest_FFmpeg_play
     av_register_all();
     avformat_network_init();
     avfilter_register_all();
+
+    /**************************** Below is Open input **********************************/
 
 #ifdef TEST_RTSP
     AVDictionary *option = NULL;
@@ -197,7 +230,12 @@ JNIEXPORT jint JNICALL Java_com_lake_ndktest_FFmpeg_play
 
 #ifdef TEST_LOCAL_FILE
     const char *fileUrl = env->GetStringUTFChars(input_jstr, JNI_FALSE);
-    if (int err = avformat_open_input(&pFormatCtx, "/storage/emulated/0/test.mp4", NULL, NULL) != 0) {
+    if (int err = avformat_open_input(&pFormatCtx1, "/storage/emulated/0/test1.mp4", NULL, NULL) != 0) {
+        LOGE("Cannot open input %s, error code: %d", "/storage/emulated/0/test.mp4", err);
+        return JNI_ERR;
+    }
+
+    if (int err = avformat_open_input(&pFormatCtx2, "/storage/emulated/0/test2.mp4", NULL, NULL) != 0) {
         LOGE("Cannot open input %s, error code: %d", "/storage/emulated/0/test.mp4", err);
         return JNI_ERR;
     }
@@ -211,8 +249,13 @@ JNIEXPORT jint JNICALL Java_com_lake_ndktest_FFmpeg_play
 
     start = clock();
     // Retrieve stream information
-    if (avformat_find_stream_info(pFormatCtx, NULL) < 0) {
-        LOGE("Couldn't find stream information.");
+    if (avformat_find_stream_info(pFormatCtx1, NULL) < 0) {
+        LOGE("Couldn't find stream1 information.");
+        return -1;
+    }
+
+    if (avformat_find_stream_info(pFormatCtx2, NULL) < 0) {
+        LOGE("Couldn't find stream2 information.");
         return -1;
     }
 
@@ -224,64 +267,126 @@ JNIEXPORT jint JNICALL Java_com_lake_ndktest_FFmpeg_play
     // Find the first video stream
     //找到第一个视频流，因为里面的流还有可能是音频流或者其他的，我们摄像头只关心视频流
     int i;
-    for (i = 0; i < pFormatCtx->nb_streams; i++) {
-        if (pFormatCtx->streams[i]->codecpar->codec_type == AVMEDIA_TYPE_VIDEO
-            && videoStream < 0) {
-            videoStream = i;
+    for (i = 0; i < pFormatCtx1->nb_streams; i++) {
+        if (pFormatCtx1->streams[i]->codecpar->codec_type == AVMEDIA_TYPE_VIDEO
+            && videoStream1 < 0) {
+            videoStream1 = i;
             break;
         }
     }
-    if (videoStream == -1) {
-        LOGE("Didn't find a video stream or audio steam.");
+    if (videoStream1 == -1) {
+        LOGE("Didn't find a video stream or audio in stream1.");
         return -1; // Didn't find a video stream
     }
+
+    for (i = 0; i < pFormatCtx2->nb_streams; i++) {
+        if (pFormatCtx2->streams[i]->codecpar->codec_type == AVMEDIA_TYPE_VIDEO
+            && videoStream2 < 0) {
+            videoStream2 = i;
+            break;
+        }
+    }
+    if (videoStream2 == -1) {
+        LOGE("Didn't find a video stream or audio in stream2.");
+        return -1; // Didn't find a video stream
+    }
+
+
+
     LOGI("找到视频流");
-    AVCodecParameters *pCodecPar = pFormatCtx->streams[videoStream]->codecpar;
+    AVCodecParameters *pCodecPar1 = pFormatCtx1->streams[videoStream1]->codecpar;
+    AVCodecParameters *pCodecPar2 = pFormatCtx2->streams[videoStream2]->codecpar;
+
     //查找解码器
     //获取一个合适的编码器pCodec find a decoder for the video stream
     //AVCodec *pCodec = avcodec_find_decoder(pCodecPar->codec_id);
-    AVCodec *pCodec;
-    switch (pCodecPar->codec_id){
+    AVCodec *pCodec1;
+    switch (pCodecPar1->codec_id){
         case AV_CODEC_ID_H264:
-            pCodec = avcodec_find_decoder_by_name("h264_mediacodec");//硬解码264
-            if (pCodec == NULL) {
-                LOGE("Couldn't find Codec.\n");
+            pCodec1 = avcodec_find_decoder_by_name("h264_mediacodec");//硬解码264
+            if (pCodec1 == NULL) {
+                LOGE("Couldn't find Codec1.\n");
                 return -1;
             }
             break;
         case AV_CODEC_ID_MPEG4:
-            pCodec = avcodec_find_decoder_by_name("mpeg4_mediacodec");//硬解码mpeg4
-            if (pCodec == NULL) {
-                LOGE("Couldn't find Codec.\n");
+            pCodec1 = avcodec_find_decoder_by_name("mpeg4_mediacodec");//硬解码mpeg4
+            if (pCodec1 == NULL) {
+                LOGE("Couldn't find Codec1.\n");
                 return -1;
             }
             break;
         case AV_CODEC_ID_HEVC:
-            pCodec = avcodec_find_decoder_by_name("hevc_mediacodec");//硬解码265
-            if (pCodec == NULL) {
-                LOGE("Couldn't find Codec.\n");
+            pCodec1 = avcodec_find_decoder_by_name("hevc_mediacodec");//硬解码265
+            if (pCodec1 == NULL) {
+                LOGE("Couldn't find Codec1.\n");
                 return -1;
             }
             break;
         default:
-            pCodec = avcodec_find_decoder(pCodecPar->codec_id);
+            pCodec1 = avcodec_find_decoder(pCodecPar1->codec_id);
             break;
     }
 
-    LOGI("获取解码器 %d.", pCodecPar->codec_id);
+    LOGI("获取解码器 %d.", pCodecPar1->codec_id);
+
+
+    AVCodec *pCodec2;
+    switch (pCodecPar2->codec_id){
+        case AV_CODEC_ID_H264:
+            pCodec2 = avcodec_find_decoder_by_name("h264_mediacodec");//硬解码264
+            if (pCodec2 == NULL) {
+                LOGE("Couldn't find Codec2.\n");
+                return -1;
+            }
+            break;
+        case AV_CODEC_ID_MPEG4:
+            pCodec2 = avcodec_find_decoder_by_name("mpeg4_mediacodec");//硬解码mpeg4
+            if (pCodec2 == NULL) {
+                LOGE("Couldn't find Codec2.\n");
+                return -1;
+            }
+            break;
+        case AV_CODEC_ID_HEVC:
+            pCodec2 = avcodec_find_decoder_by_name("hevc_mediacodec");//硬解码265
+            if (pCodec2 == NULL) {
+                LOGE("Couldn't find Codec2.\n");
+                return -1;
+            }
+            break;
+        default:
+            pCodec2 = avcodec_find_decoder(pCodecPar2->codec_id);
+            break;
+    }
+
+    LOGI("获取解码器 %d.", pCodecPar2->codec_id);
+
+
+
+
     //打开这个编码器，pCodecCtx表示编码器上下文，里面有流数据的信息
     // Get a pointer to the codec context for the video stream
-    pCodecCtx = avcodec_alloc_context3(pCodec);
+    pCodecCtx1 = avcodec_alloc_context3(pCodec1);
+    pCodecCtx2 = avcodec_alloc_context3(pCodec2);
 
     // Copy context
-    if (avcodec_parameters_to_context(pCodecCtx, pCodecPar) != 0) {
-        fprintf(stderr, "Couldn't copy codec context");
+    if (avcodec_parameters_to_context(pCodecCtx1, pCodecPar1) != 0) {
+        fprintf(stderr, "Couldn't copy codec context1");
         return -1; // Error copying codec context
     }
 
-    LOGI("视频流帧率：%d fps\n", pFormatCtx->streams[videoStream]->r_frame_rate.num /
-                           pFormatCtx->streams[videoStream]->r_frame_rate.den);
+    // Copy context
+    if (avcodec_parameters_to_context(pCodecCtx2, pCodecPar2) != 0) {
+        fprintf(stderr, "Couldn't copy codec context2");
+        return -1; // Error copying codec context
+    }
 
+    LOGI("视频流1帧率：%d fps\n", pFormatCtx1->streams[videoStream1]->r_frame_rate.num /
+                           pFormatCtx1->streams[videoStream1]->r_frame_rate.den);
+    LOGI("视频流2帧率：%d fps\n", pFormatCtx2->streams[videoStream2]->r_frame_rate.num /
+                           pFormatCtx2->streams[videoStream2]->r_frame_rate.den);
+
+#if 0
     int iTotalSeconds = (int) pFormatCtx->duration / 1000000;
     int iHour = iTotalSeconds / 3600;//小时
     int iMinute = iTotalSeconds % 3600 / 60;//分钟
@@ -290,19 +395,31 @@ JNIEXPORT jint JNICALL Java_com_lake_ndktest_FFmpeg_play
 
     LOGI("视频时长：%lld微秒\n", pFormatCtx->streams[videoStream]->duration);
     LOGI("持续时间：%lld微秒\n", pFormatCtx->duration);
+#endif
+
     LOGI("获取解码器SUCESS");
 
-    if (avcodec_open2(pCodecCtx, pCodec, NULL) < 0) {
-        LOGE("Could not open codec.");
+    if (avcodec_open2(pCodecCtx1, pCodec1, NULL) < 0) {
+        LOGE("Could not open codec1.");
         return -1; // Could not open codec
     }
+
+    if (avcodec_open2(pCodecCtx2, pCodec2, NULL) < 0) {
+        LOGE("Could not open codec1.");
+        return -1; // Could not open codec
+    }
+
+
+
+    /**************************** Below is set ANativeWindow **********************************/
+
     LOGI("获取native window");
     // 获取native window
     ANativeWindow *nativeWindow = ANativeWindow_fromSurface(env, surface);
     LOGI("获取视频宽高");
     // 获取视频宽高
-    int videoWidth = pCodecCtx->width;
-    int videoHeight = pCodecCtx->height;
+    int videoWidth = pCodecCtx1->width;
+    int videoHeight = pCodecCtx1->height;
     LOGI("设置native window的buffer大小,可自动拉伸");
     // 设置native window的buffer大小,可自动拉伸
     ANativeWindow_setBuffersGeometry(nativeWindow, videoWidth, videoHeight,
@@ -311,28 +428,29 @@ JNIEXPORT jint JNICALL Java_com_lake_ndktest_FFmpeg_play
 
     LOGI("Allocate video frame");
     // Allocate video frame
-    AVFrame *pFrame = av_frame_alloc();
+    AVFrame *pFrame1 = av_frame_alloc();
+    AVFrame *pFrame2 = av_frame_alloc();
     AVFrame *filt_frame = av_frame_alloc();
     LOGI("用于渲染");
     // 用于渲染
     AVFrame *pFrameRGBA = av_frame_alloc();
-    if (pFrameRGBA == NULL || pFrame == NULL || filt_frame == NULL) {
+    if (pFrameRGBA == NULL || pFrame1 == NULL || pFrame2 == NULL || filt_frame == NULL) {
         LOGE("Could not allocate video frame.");
         return -1;
     }
     LOGI("Determine required buffer size and allocate buffer");
     // Determine required buffer size and allocate buffer
-    int numBytes = av_image_get_buffer_size(AV_PIX_FMT_RGBA, pCodecCtx->width, pCodecCtx->height,
+    int numBytes = av_image_get_buffer_size(AV_PIX_FMT_RGBA, pCodecCtx1->width, pCodecCtx1->height,
                                             1);
     uint8_t *buffer = (uint8_t *) av_malloc(numBytes * sizeof(uint8_t));
     av_image_fill_arrays(pFrameRGBA->data, pFrameRGBA->linesize, buffer, AV_PIX_FMT_RGBA,
-                         pCodecCtx->width, pCodecCtx->height, 1);
+                         pCodecCtx1->width, pCodecCtx1->height, 1);
     LOGI("由于解码出来的帧格式不是RGBA的,在渲染之前需要进行格式转换");
     // 由于解码出来的帧格式不是RGBA的,在渲染之前需要进行格式转换
-    struct SwsContext *sws_ctx = sws_getContext(pCodecCtx->width/*视频宽度*/, pCodecCtx->height/*视频高度*/,
-                                                pCodecCtx->pix_fmt/*像素格式*/,
-                                                pCodecCtx->width/*目标宽度*/,
-                                                pCodecCtx->height/*目标高度*/, AV_PIX_FMT_RGBA/*目标格式*/,
+    struct SwsContext *sws_ctx = sws_getContext(pCodecCtx1->width/*视频宽度*/, pCodecCtx1->height/*视频高度*/,
+                                                pCodecCtx1->pix_fmt/*像素格式*/,
+                                                pCodecCtx1->width/*目标宽度*/,
+                                                pCodecCtx1->height/*目标高度*/, AV_PIX_FMT_RGBA/*目标格式*/,
                                                 SWS_BICUBIC/*图像转换的一些算法*/, NULL, NULL, NULL);
     if (sws_ctx == NULL) {
         LOGE("Cannot initialize the conversion context!\n");
@@ -341,33 +459,46 @@ JNIEXPORT jint JNICALL Java_com_lake_ndktest_FFmpeg_play
     LOGI("格式转换成功");
     LOGE("开始播放");
 
+    /**************************** Below is Set Filter **********************************/
+
     int ret;
 
 #ifdef USE_FILTER
-    ret = init_filters(filter_split4);
+    ret = init_filters(filter_mix_2);
     if(ret < 0){
         goto end;
     }
 #endif
 
-    AVPacket packet;
-    while (av_read_frame(pFormatCtx, &packet) >= 0) {
+
+    /**************************** Below is Display **********************************/
+
+    AVPacket packet1;
+    AVPacket packet2;
+    while ((av_read_frame(pFormatCtx1, &packet1) >= 0) && (av_read_frame(pFormatCtx2, &packet2) >= 0)) {
         // Is this a packet from the video stream?
-        if (packet.stream_index == videoStream) {
+        if ((packet1.stream_index == videoStream1) && (packet2.stream_index == videoStream2)) {
             //该楨位置
-            float timestamp = packet.pts * av_q2d(pFormatCtx->streams[videoStream]->time_base);
+            //float timestamp = packet.pts * av_q2d(pFormatCtx->streams[videoStream]->time_base);
             //LOGI("timestamp=%f", timestamp);
             // 解码
-            ret = avcodec_send_packet(pCodecCtx, &packet);
+            ret = avcodec_send_packet(pCodecCtx1, &packet1);
             if (ret < 0) {
                 break;
             }
-            while (avcodec_receive_frame(pCodecCtx, pFrame) == 0) {//绘图
-
+            ret = avcodec_send_packet(pCodecCtx2, &packet2);
+            if (ret < 0) {
+                break;
+            }
+            while ((avcodec_receive_frame(pCodecCtx1, pFrame1) == 0) && (avcodec_receive_frame(pCodecCtx2, pFrame2) == 0)) {//绘图
 
 #ifdef USE_FILTER
                 /* Push the decoded frame into the filtergraph. */
-                if(av_buffersrc_add_frame_flags(buffersrc_ctx, pFrame, AV_BUFFERSRC_FLAG_KEEP_REF) < 0){
+                if(av_buffersrc_add_frame_flags(buffersrc_ctx1, pFrame1, AV_BUFFERSRC_FLAG_KEEP_REF) < 0){
+                    LOGE("Error while feeding the filtergraph. \n");
+                    break;
+                }
+                if(av_buffersrc_add_frame_flags(buffersrc_ctx2, pFrame2, AV_BUFFERSRC_FLAG_KEEP_REF) < 0){
                     LOGE("Error while feeding the filtergraph. \n");
                     break;
                 }
@@ -387,7 +518,7 @@ JNIEXPORT jint JNICALL Java_com_lake_ndktest_FFmpeg_play
 #ifdef USE_FILTER
                     // 格式转换
                     sws_scale(sws_ctx, (uint8_t const *const *) filt_frame->data,
-                              filt_frame->linesize, 0, pCodecCtx->height,
+                              filt_frame->linesize, 0, pCodecCtx1->height,
                               pFrameRGBA->data, pFrameRGBA->linesize);
 #endif
 
@@ -422,7 +553,8 @@ JNIEXPORT jint JNICALL Java_com_lake_ndktest_FFmpeg_play
 #endif
             }
         }
-        av_packet_unref(&packet);
+        av_packet_unref(&packet1);
+        av_packet_unref(&packet2);
     }
     LOGE("播放完成");
 
@@ -436,13 +568,17 @@ end:
     av_free(pFrameRGBA);
 
     // Free the YUV frame
-    av_free(pFrame);
+    av_free(pFrame1);
+    av_free(pFrame2);
 
     // Close the codecs
-    avcodec_free_context(&pCodecCtx);
+    avcodec_free_context(&pCodecCtx1);
+    avcodec_free_context(&pCodecCtx2);
 
     // Close the video file
-    avformat_close_input(&pFormatCtx);
+    avformat_close_input(&pFormatCtx1);
+    avformat_close_input(&pFormatCtx2);
+
     return 0;
 }
 }
