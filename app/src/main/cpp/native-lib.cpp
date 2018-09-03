@@ -14,6 +14,7 @@ extern "C" {
 #include <libavutil/opt.h>
 #include <stdio.h>
 #include <time.h>
+#include <pthread.h>
 
 
 #ifdef ANDROID
@@ -286,6 +287,30 @@ end:
     av_free(pFrame);
 
     return ret;
+}
+
+
+void *process_second_channel_display(void *args)
+{
+    LOGI(" ++++++++++ In process_second_channel_display function. ++++++++++  - 1 - ");
+    AVFormatContext **pFormatCtx = (AVFormatContext **)((void**)args)[0];
+    AVCodecContext **pCodecCtx = (AVCodecContext **)((void**)args)[1];
+    int *video_index = (int *)((void**)args)[2];
+    AVFilterContext **buffersrc_ctx = (AVFilterContext **)((void**)args)[3];
+    AVFilterContext **buffersink_ctx = (AVFilterContext **)((void**)args)[4];
+    ANativeWindow **nativeWindow = (ANativeWindow **)((void**)args)[5];
+    ANativeWindow_Buffer *windowBuffer = (ANativeWindow_Buffer *)((void**)args)[6];
+    struct SwsContext **sws_ctx = (struct SwsContext **)((void**)args)[7];
+    AVFrame **pFrameRGBA = (AVFrame **)((void**)args)[8];
+
+    LOGI(" ++++++++++ In process_second_channel_display function. ++++++++++  - 2 - ");
+
+    display_frame(*pFormatCtx, *pCodecCtx, *video_index, *buffersrc_ctx, *buffersink_ctx,
+                  *nativeWindow, *windowBuffer, *sws_ctx, *pFrameRGBA);
+
+    LOGI(" ++++++++++ In process_second_channel_display function. ++++++++++  - 3 - ");
+
+    return NULL;
 }
 
 
@@ -563,17 +588,49 @@ JNIEXPORT jint JNICALL Java_com_lake_ndktest_FFmpeg_play
 #ifdef USE_FILTER
     ret = init_filters(filter_mix_2);
     if(ret < 0){
-        goto end;
+        avfilter_graph_free(&filter_graph);
     }
 #endif
 
 
     /**************************** Below is Display **********************************/
-    display_frame(pFormatCtx2, pCodecCtx2, videoStream2, buffersrc_ctx2, buffersink_ctx,
-                  nativeWindow, windowBuffer, sws_ctx, pFrameRGBA);
+    //display_frame(pFormatCtx2, pCodecCtx2, videoStream2, buffersrc_ctx2, buffersink_ctx,
+    //        nativeWindow, windowBuffer, sws_ctx, pFrameRGBA);
 
-    display_frame(pFormatCtx1, pCodecCtx1, videoStream1, buffersrc_ctx1, buffersink_ctx,
-            nativeWindow, windowBuffer, sws_ctx, pFrameRGBA);
+#if 1
+    pthread_t threadID2;
+    void *arg2[9] = {&pFormatCtx2, &pCodecCtx2, &videoStream2, &buffersrc_ctx2, &buffersink_ctx,
+                     &nativeWindow, &windowBuffer, &sws_ctx, &pFrameRGBA};
+    ret = pthread_create(&threadID2, NULL, process_second_channel_display, arg2);
+    if(ret != 0){
+        LOGE("pthread_create threadID2 error, error code = %d.", ret);
+        return -1;
+    }
+
+    if(threadID2 != 0){
+        pthread_join(threadID2, NULL);
+        LOGI(" Thread have stopped. ");
+    }
+#endif
+
+    pthread_t threadID1;
+    void *arg1[9] = {&pFormatCtx1, &pCodecCtx1, &videoStream1, &buffersrc_ctx1, &buffersink_ctx,
+                    &nativeWindow, &windowBuffer, &sws_ctx, &pFrameRGBA};
+    ret = pthread_create(&threadID1, NULL, process_second_channel_display, arg1);
+    if(ret != 0){
+        LOGE("pthread_create threadID1 error, error code = %d.", ret);
+        return -1;
+    }
+
+    if(threadID1 != 0){
+        pthread_join(threadID1, NULL);
+        LOGI(" Thread have stopped. ");
+    }
+
+
+
+    //display_frame(pFormatCtx1, pCodecCtx1, videoStream1, buffersrc_ctx1, buffersink_ctx,
+    //        nativeWindow, windowBuffer, sws_ctx, pFrameRGBA);
 
 
     LOGE("播放完成");
