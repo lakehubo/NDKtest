@@ -252,6 +252,7 @@ int display_frame(AVFormatContext *pFormatCtx, AVCodecContext *pCodecCtx, int vi
                     /*********************************************************************/
                     /************* If test RTSP or LOCAL_FILE, need to change here. ******/
                     /************* Change filt_frame to pFrame. **************************/
+                    /************* If no need to use filter, need change here. ***********/
                     /*********************************************************************/
 #if 0
                     // 格式转换
@@ -328,35 +329,58 @@ JNIEXPORT jint JNICALL Java_com_lake_ndktest_FFmpeg_play
     /**************************** Below is Open input **********************************/
 
 #ifdef TEST_RTSP
-    AVDictionary *option = NULL;
-    av_dict_set(&option, "buffer_size", "1024000", 0);
-    av_dict_set(&option, "max_delay", "300000", 0);
-    av_dict_set(&option, "stimeout", "20000000", 0);  //设置超时断开连接时间
-    av_dict_set(&option, "rtsp_transport", "tcp", 0);
 
-    pFormatCtx = avformat_alloc_context();
+    AVDictionary *option1 = NULL;
+    av_dict_set(&option1, "buffer_size", "1024000", 0);
+    av_dict_set(&option1, "max_delay", "300000", 0);
+    av_dict_set(&option1, "stimeout", "20000000", 0);  //设置超时断开连接时间
+    av_dict_set(&option1, "rtsp_transport", "tcp", 0);
+
+    pFormatCtx1 = avformat_alloc_context();
 
 
-    // Open RTSP
+    // Open RTSP1
     const char *rtspUrl= env->GetStringUTFChars(input_jstr, JNI_FALSE);
-    if (int err = avformat_open_input(&pFormatCtx, rtspUrl, NULL, &option) != 0) {
-        LOGE("Cannot open input %s, error code: %d", rtspUrl, err);
+    if (int err = avformat_open_input(&pFormatCtx1, "rtsp://192.168.0.20:554", NULL, &option1) != 0) {
+        LOGE("Cannot open input %s, error code: %d", "rtsp://192.168.0.20:554", err);
         return JNI_ERR;
     }
     env->ReleaseStringUTFChars(input_jstr, rtspUrl);
 
-    av_dict_free(&option);
+    av_dict_free(&option1);
+
+    //Set second channel
+    AVDictionary *option2 = NULL;
+    av_dict_set(&option2, "buffer_size", "1024000", 0);
+    av_dict_set(&option2, "max_delay", "300000", 0);
+    av_dict_set(&option2, "stimeout", "20000000", 0);  //设置超时断开连接时间
+    av_dict_set(&option2, "rtsp_transport", "tcp", 0);
+
+    pFormatCtx2 = avformat_alloc_context();
+
+
+    // Open RTSP2
+    const char *rtspUrl= env->GetStringUTFChars(input_jstr, JNI_FALSE);
+    if (int err = avformat_open_input(&pFormatCtx2, "rtsp://192.168.0.20:554", NULL, &option2) != 0) {
+        LOGE("Cannot open input %s, error code: %d", "rtsp://192.168.0.20:554", err);
+        //return JNI_ERR;
+    }
+    env->ReleaseStringUTFChars(input_jstr, rtspUrl);
+
+    av_dict_free(&option2);
 
 #endif
 
 
 #ifdef TEST_LOCAL_FILE
+    pFormatCtx1 = avformat_alloc_context();
     const char *fileUrl = env->GetStringUTFChars(input_jstr, JNI_FALSE);
     if (int err = avformat_open_input(&pFormatCtx1, "/storage/emulated/0/test1.mp4", NULL, NULL) != 0) {
         LOGE("Cannot open input %s, error code: %d", "/storage/emulated/0/test1.mp4", err);
         return JNI_ERR;
     }
 
+    pFormatCtx2 = avformat_alloc_context();
     if (int err = avformat_open_input(&pFormatCtx2, "/storage/emulated/0/test2.mp4", NULL, NULL) != 0) {
         LOGE("Cannot open input %s, error code: %d", "/storage/emulated/0/test2.mp4", err);
         return JNI_ERR;
