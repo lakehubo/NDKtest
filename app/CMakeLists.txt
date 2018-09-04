@@ -25,4 +25,6 @@ find_library(log-lib log)
 target_link_libraries(native-lib
                       android
                       ffmpeg
+                      EGL
+                      GLESv3
                       ${log-lib})

@@ -16,6 +16,19 @@ extern "C" {
 #include <time.h>
 #include <pthread.h>
 
+#include <EGL/egl.h>
+#include <EGL/eglext.h>
+#include <EGL/eglplatform.h>
+#include <GLES/gl.h>
+#include <GLES/glext.h>
+#include <GLES/glplatform.h>
+#include <GLES2/gl2.h>
+#include <GLES2/gl2ext.h>
+#include<GLES2/gl2platform.h>
+#include<GLES3/gl3.h>
+#include<GLES3/gl3ext.h>
+#include<GLES3/gl3platform.h>
+
 
 #ifdef ANDROID
 
@@ -37,6 +50,11 @@ extern "C" {
 #define TEST_LOCAL_FILE
 #define USE_FILTER
 
+
+#define BYTES_PER_FLOAT 4
+#define POSITION_COMPONENT_COUNT 2
+#define TEXTURE_COORDINATES_COMPONENT_COUNT 2
+#define STRIDE ((POSITION_COMPONENT_COUNT + TEXTURE_COORDINATES_COMPONENT_COUNT)*BYTES_PER_FLOAT)
 
 
 const char *filter_descr = "scale=78:24,transpose=cclock";
@@ -64,6 +82,26 @@ static int videoStream2 = -1;
 
 int videoWidth;
 int videoHeight;
+
+ANativeWindow *nativeWindow;
+
+typedef struct GlobalContexts {
+    EGLDisplay eglDisplay;
+    EGLSurface eglSurface;
+    EGLContext eglContext;
+    EGLint eglFormat;
+
+    GLuint mTextureID[3];
+    GLuint glProgram;
+    GLint positionLoc;
+} GlobalContext;
+
+GlobalContext global_context;
+
+
+
+int CreateProgram();
+void renderSurface(AVFrame *frame);
 
 
 
@@ -207,6 +245,12 @@ int display_frame(AVFormatContext *pFormatCtx, AVCodecContext *pCodecCtx, int vi
     AVFrame *filt_frame = av_frame_alloc();
     LOGI("++++++++ in display_frame function.  * 1 * \n");
 
+    EGLBoolean success = eglMakeCurrent(global_context.eglDisplay,
+                                        global_context.eglSurface, global_context.eglSurface,
+                                        global_context.eglContext);
+
+    CreateProgram();
+
     while (av_read_frame(pFormatCtx, &packet) >= 0) {
         // Is this a packet from the video stream?
         if ((packet.stream_index == video_index)) {
@@ -237,6 +281,11 @@ int display_frame(AVFormatContext *pFormatCtx, AVCodecContext *pCodecCtx, int vi
                     if(ret < 0)
                         goto end;
 #endif
+
+                    renderSurface(filt_frame);
+
+//这个if后面的语句，就是将nativewindow替换成GPU来显示的。
+#if 0
                     // lock native window buffer
                     ANativeWindow_lock(nativeWindow, &windowBuffer, 0);
 
@@ -275,6 +324,8 @@ int display_frame(AVFormatContext *pFormatCtx, AVCodecContext *pCodecCtx, int vi
                     }
                     LOGI("++++++++ in display_frame function.  * 4 * \n");
                     ANativeWindow_unlockAndPost(nativeWindow);
+#endif
+
 #ifdef USE_FILTER
                     av_frame_unref(filt_frame);
                 }
@@ -312,6 +363,339 @@ void *process_second_channel_display(void *args)
     LOGI(" ++++++++++ In process_second_channel_display function. ++++++++++  - 3 - ");
 
     return NULL;
+}
+
+int eglOpen() {
+    /*****************************************************************************************
+     * 按照eglGetDisplay->eglInitialize->eglChooseConfig->eglCreateContext ->eglGetConfigAttrib
+     * ->eglCreateWindowSurface的过程逐步完成egl和本地窗口的绑定。
+     *****************************************************************************************/
+
+    EGLDisplay eglDisplay = eglGetDisplay(EGL_DEFAULT_DISPLAY );
+    if (eglDisplay == EGL_NO_DISPLAY ) {
+        LOGE("eglGetDisplay failure.");
+        return -1;
+    }
+    global_context.eglDisplay = eglDisplay;
+    LOGI("eglGetDisplay ok");
+
+    EGLint majorVersion;
+    EGLint minorVersion;
+    EGLBoolean success = eglInitialize(eglDisplay, &majorVersion,
+                                       &minorVersion);
+    if (!success) {
+        LOGE("eglInitialize failure.");
+        return -1;
+    }
+    LOGI("eglInitialize ok");
+
+    GLint numConfigs;
+    EGLConfig config;
+    static const EGLint CONFIG_ATTRIBS[] = { EGL_BUFFER_SIZE, EGL_DONT_CARE,
+                                             EGL_RED_SIZE, 5, EGL_GREEN_SIZE, 6, EGL_BLUE_SIZE, 5,
+                                             EGL_DEPTH_SIZE, 16, EGL_ALPHA_SIZE, EGL_DONT_CARE, EGL_STENCIL_SIZE,
+                                             EGL_DONT_CARE, EGL_RENDERABLE_TYPE, EGL_OPENGL_ES2_BIT,
+                                             EGL_SURFACE_TYPE, EGL_WINDOW_BIT, EGL_NONE // the end
+            };
+    success = eglChooseConfig(eglDisplay, CONFIG_ATTRIBS, &config, 1,
+                              &numConfigs);
+    if (!success) {
+        LOGE("eglChooseConfig failure.");
+        return -1;
+    }
+    LOGI("eglChooseConfig ok");
+
+    const EGLint attribs[] = { EGL_CONTEXT_CLIENT_VERSION, 2, EGL_NONE };
+    EGLContext elgContext = eglCreateContext(eglDisplay, config, EGL_NO_CONTEXT,
+                                             attribs);
+    if (elgContext == EGL_NO_CONTEXT ) {
+        LOGE("eglCreateContext failure, error is %d", eglGetError());
+        return -1;
+    }
+    global_context.eglContext = elgContext;
+    LOGI("eglCreateContext ok");
+
+    EGLint eglFormat;
+    success = eglGetConfigAttrib(eglDisplay, config, EGL_NATIVE_VISUAL_ID,
+                                 &eglFormat);
+    if (!success) {
+        LOGE("eglGetConfigAttrib failure.");
+        return -1;
+    }
+    global_context.eglFormat = eglFormat;
+    LOGI("eglGetConfigAttrib ok");
+
+    EGLSurface eglSurface = eglCreateWindowSurface(eglDisplay, config,
+                                                   nativeWindow, 0);
+    if (NULL == eglSurface) {
+        LOGE("eglCreateWindowSurface failure.");
+        return -1;
+    }
+    global_context.eglSurface = eglSurface;
+    LOGI("eglCreateWindowSurface ok");
+
+    return 0;
+}
+
+int eglClose() {
+    EGLBoolean success = eglDestroySurface(global_context.eglDisplay,
+                                           global_context.eglSurface);
+    if (!success) {
+        LOGE("eglDestroySurface failure.");
+    }
+
+    success = eglDestroyContext(global_context.eglDisplay,
+                                global_context.eglContext);
+    if (!success) {
+        LOGE("eglDestroySurface failure.");
+    }
+
+    success = eglTerminate(global_context.eglDisplay);
+    if (!success) {
+        LOGE("eglDestroySurface failure.");
+    }
+
+    global_context.eglSurface = NULL;
+    global_context.eglContext = NULL;
+    global_context.eglDisplay = NULL;
+
+    return 0;
+}
+
+/* type specifies the Shader type: GL_VERTEX_SHADER or GL_FRAGMENT_SHADER */
+GLuint LoadShader(GLenum type, const char *shaderSrc) {
+    GLuint shader;
+    GLint compiled;
+
+    // Create an empty shader object, which maintain the source code strings that define a shader
+    shader = glCreateShader(type);
+
+    if (shader == 0)
+        return 0;
+
+    // Replaces the source code in a shader object
+    glShaderSource(shader, 1, &shaderSrc, NULL);
+
+    // Compile the shader object
+    glCompileShader(shader);
+
+    // Check the shader object compile status
+    glGetShaderiv(shader, GL_COMPILE_STATUS, &compiled);
+
+    if (!compiled) {
+        GLint infoLen = 0;
+
+        glGetShaderiv(shader, GL_INFO_LOG_LENGTH, &infoLen);
+
+        if (infoLen > 1) {
+            GLchar* infoLog = (GLchar*) malloc(sizeof(GLchar) * infoLen);
+
+            glGetShaderInfoLog(shader, infoLen, NULL, infoLog);
+            LOGE("Error compiling shader:\n%s\n", infoLog);
+
+            free(infoLog);
+        }
+
+        glDeleteShader(shader);
+        return 0;
+    }
+
+    return shader;
+}
+
+GLuint LoadProgram(const char *vShaderStr, const char *fShaderStr) {
+    GLuint vertexShader;
+    GLuint fragmentShader;
+    GLuint programObject;
+    GLint linked;
+
+    // Load the vertex/fragment shaders
+    vertexShader = LoadShader(GL_VERTEX_SHADER, vShaderStr);
+    fragmentShader = LoadShader(GL_FRAGMENT_SHADER, fShaderStr);
+
+    // Create the program object
+    programObject = glCreateProgram();
+    if (programObject == 0)
+        return 0;
+
+    // Attaches a shader object to a program object
+    glAttachShader(programObject, vertexShader);
+    glAttachShader(programObject, fragmentShader);
+    // Bind vPosition to attribute 0
+    glBindAttribLocation(programObject, 0, "vPosition");
+    // Link the program object
+    glLinkProgram(programObject);
+
+    // Check the link status
+    glGetProgramiv(programObject, GL_LINK_STATUS, &linked);
+
+    if (!linked) {
+        GLint infoLen = 0;
+
+        glGetProgramiv(programObject, GL_INFO_LOG_LENGTH, &infoLen);
+
+        if (infoLen > 1) {
+            GLchar* infoLog = (GLchar*) malloc(sizeof(GLchar) * infoLen);
+
+            glGetProgramInfoLog(programObject, infoLen, NULL, infoLog);
+            LOGE("Error linking program:\n%s\n", infoLog);
+
+            free(infoLog);
+        }
+
+        glDeleteProgram(programObject);
+        return GL_FALSE;
+    }
+
+    // Free no longer needed shader resources
+    glDeleteShader(vertexShader);
+    glDeleteShader(fragmentShader);
+
+    return programObject;
+}
+
+int CreateProgram() {
+    GLuint programObject;
+
+    GLbyte vShaderStr[] = "attribute vec4 a_Position;  			\n"
+            "attribute vec2 a_TextureCoordinates;   \n"
+            "varying vec2 v_TextureCoordinates;     \n"
+            "void main()                            \n"
+            "{                                      \n"
+            "    v_TextureCoordinates = a_TextureCoordinates;   \n"
+            "    gl_Position = a_Position;    \n"
+            "}                                      \n";
+
+    GLbyte fShaderStr[] =
+            "precision highp float; 							\n"
+                    "varying vec2 v_TextureCoordinates;              	\n"
+                    "uniform sampler2D tex_y;  							\n"
+                    "uniform sampler2D tex_u;  							\n"
+                    "uniform sampler2D tex_v; 							\n"
+                    "void main()										\n"
+#if 1
+                    "{                                            									\n"
+                    "  vec4 c = vec4((texture2D(tex_y, v_TextureCoordinates).r - 16./255.) * 1.164);\n"
+                    "  vec4 U = vec4(texture2D(tex_u, v_TextureCoordinates).r - 128./255.);			\n"
+                    "  vec4 V = vec4(texture2D(tex_v, v_TextureCoordinates).r - 128./255.);			\n"
+                    "  c += V * vec4(1.596, -0.813, 0, 0);											\n"
+                    "  c += U * vec4(0, -0.392, 2.017, 0);											\n"
+                    "  c.a = 1.0;																	\n"
+                    "  gl_FragColor = c;															\n"
+                    "}                                            									\n";
+#else
+    "{													\n"
+	"	    highp float y = texture2D(tex_y, v_TextureCoordinates).r;  			\n"
+	"	    highp float u = texture2D(tex_u, v_TextureCoordinates).r - 0.5;  	\n"
+	"	    highp float v = texture2D(tex_v, v_TextureCoordinates).r - 0.5;  	\n"
+	"		highp float r = y + 1.402 * v;										\n"
+	"		highp float g = y - 0.344 * u - 0.714 * v;							\n"
+	"		highp float b = y + 1.772 * u;										\n"
+	"		gl_FragColor = vec4(r, g, b, 1.0);									\n"
+	"}																			\n";
+#endif
+
+    // Load the shaders and get a linked program object
+    programObject = LoadProgram((const char*) vShaderStr,
+                                (const char*) fShaderStr);
+    if (programObject == 0) {
+        return GL_FALSE;
+    }
+
+    // Store the program object
+    global_context.glProgram = programObject;
+
+    // Get the attribute locations
+    global_context.positionLoc = glGetAttribLocation(programObject,
+                                                     "v_position");
+    glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
+
+    glGenTextures(3, global_context.mTextureID);
+    for (int i = 0; i < 3; i++) {
+        glBindTexture(GL_TEXTURE_2D, global_context.mTextureID[i]);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    }
+    return 0;
+}
+
+void Render(AVFrame *frame) {
+    GLfloat vVertices[] = { 0.0f, 0.5f, 0.0f, -0.5f, -0.5f, 0.0f, 0.5f, -0.5f,
+                            0.0f };
+    // Clear the color buffer
+    //glClear(GL_COLOR_BUFFER_BIT);
+
+    // Use the program object
+    glUseProgram(global_context.glProgram);
+
+    //Get Uniform Variables Location
+    GLint textureUniformY = glGetUniformLocation(global_context.glProgram,
+                                                 "tex_y");
+    GLint textureUniformU = glGetUniformLocation(global_context.glProgram,
+                                                 "tex_u");
+    GLint textureUniformV = glGetUniformLocation(global_context.glProgram,
+                                                 "tex_v");
+
+    int w = pCodecCtx1->width;
+    int h = pCodecCtx1->height;
+    GLubyte* y = (GLubyte*) frame->data[0];
+    GLubyte* u = (GLubyte*) frame->data[1];
+    GLubyte* v = (GLubyte*) frame->data[2];
+    GLint y_width = frame->linesize[0];
+    GLint u_width = frame->linesize[1];
+    GLint v_width = frame->linesize[2];
+
+    // Set the viewport
+    glViewport(0, 0, y_width, pCodecCtx1->height);
+
+    //Y
+    glActiveTexture(GL_TEXTURE0);
+    glBindTexture(GL_TEXTURE_2D, global_context.mTextureID[0]);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_LUMINANCE, y_width, h, 0, GL_LUMINANCE,
+                 GL_UNSIGNED_BYTE, y);
+    glUniform1i(textureUniformY, 0);
+    //U
+    glActiveTexture(GL_TEXTURE1);
+    glBindTexture(GL_TEXTURE_2D, global_context.mTextureID[1]);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_LUMINANCE, u_width, h / 2, 0,
+                 GL_LUMINANCE, GL_UNSIGNED_BYTE, u);
+    glUniform1i(textureUniformU, 1);
+    //V
+    glActiveTexture(GL_TEXTURE2);
+    glBindTexture(GL_TEXTURE_2D, global_context.mTextureID[2]);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_LUMINANCE, v_width, h / 2, 0,
+                 GL_LUMINANCE, GL_UNSIGNED_BYTE, v);
+    glUniform1i(textureUniformV, 2);
+
+    // Retrieve attribute locations for the shader program.
+    GLint aPositionLocation = glGetAttribLocation(global_context.glProgram,
+                                                  "a_Position");
+    GLint aTextureCoordinatesLocation = glGetAttribLocation(
+            global_context.glProgram, "a_TextureCoordinates");
+
+    // Order of coordinates: X, Y, S, T
+    // Triangle Fan
+    GLfloat VERTEX_DATA[] = { 0.0f, 0.0f, 0.5f, 0.5f, -1.0f, -1.0f, 0.0f, 1.0f,
+                              1.0f, -1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 0.0f, -1.0f, 1.0f, 0.0f,
+                              0.0f, -1.0f, -1.0f, 0.0f, 1.0f };
+
+    glVertexAttribPointer(aPositionLocation, POSITION_COMPONENT_COUNT, GL_FLOAT,
+                          false, STRIDE, VERTEX_DATA);
+    glEnableVertexAttribArray(aPositionLocation);
+
+    glVertexAttribPointer(aTextureCoordinatesLocation, POSITION_COMPONENT_COUNT,
+                          GL_FLOAT, false, STRIDE, &VERTEX_DATA[POSITION_COMPONENT_COUNT]);
+    glEnableVertexAttribArray(aTextureCoordinatesLocation);
+
+    glDrawArrays(GL_TRIANGLE_FAN, 0, 6);
+
+    eglSwapBuffers(global_context.eglDisplay, global_context.eglSurface);
+}
+
+void renderSurface(AVFrame *frame) {
+    Render(frame);
 }
 
 
@@ -561,7 +945,7 @@ JNIEXPORT jint JNICALL Java_com_lake_ndktest_FFmpeg_play
 
     LOGI("获取native window");
     // 获取native window
-    ANativeWindow *nativeWindow = ANativeWindow_fromSurface(env, surface);
+    nativeWindow = ANativeWindow_fromSurface(env, surface);
     LOGI("获取视频宽高");
     // 获取视频宽高
     videoWidth = pCodecCtx1->width;
@@ -569,8 +953,16 @@ JNIEXPORT jint JNICALL Java_com_lake_ndktest_FFmpeg_play
     LOGI("设置native window的buffer大小,可自动拉伸");
     // 设置native window的buffer大小,可自动拉伸
     ANativeWindow_setBuffersGeometry(nativeWindow, videoWidth, videoHeight,
-                                     WINDOW_FORMAT_RGBA_8888);
+                                     global_context.eglFormat);
     ANativeWindow_Buffer windowBuffer;
+
+    //open egl
+    if ((global_context.eglSurface != NULL)
+        || (global_context.eglContext != NULL)
+        || (global_context.eglDisplay != NULL)) {
+        eglClose();
+    }
+    eglOpen();
 
     LOGI("Allocate video frame");
     // Allocate video frame
