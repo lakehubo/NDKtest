@@ -5,19 +5,22 @@
     android:layout_height="match_parent"
     android:orientation="vertical"
     tools:context="com.lake.ndktest.MainActivity">
+
     <EditText
-        android:text="渡.mp4"
+        android:text="rtsp://192.168.0.20:554"
         android:hint="inputBitstream"
         android:id="@+id/input_url"
         android:layout_width="match_parent"
         android:layout_height="wrap_content" />
+
     <Button
         android:text="play"
         android:id="@+id/button_start"
         android:layout_width="match_parent"
         android:layout_height="wrap_content" />
+
     <SurfaceView
         android:id="@+id/surfaceView"
         android:layout_width="match_parent"
-        android:layout_height="200dp" />
+        android:layout_height="match_parent" />
 </LinearLayout>
